@@ -1,173 +1,414 @@
-# Documentação da API
+<?php 
 
-## Visão Geral
-Esta API foi desenvolvida para gerenciamento de usuários e tickets. Ela permite autenticação de usuários, gerenciamento de tickets e envio de mensagens.
+session_start();
+$input = file_get_contents("php://input");
+$data = json_decode($input, true);
 
-## Configuração da Conexão com o Banco de Dados
-A API se conecta ao banco de dados MySQL com as seguintes credenciais:
+header("Content-Type: application/json");
+header("Access-Control-Allow-Origin: *");  // Permite todas as origens
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+date_default_timezone_set('America/Sao_Paulo');
+$sql = [
+    "host"     => "127.0.0.1:3307",
+    "user"     => "root",
+    "password" => "",
+    "database" => "netron_company"
+];
 
-- **Host:** `127.0.0.1:3307`
-- **Usuário:** `root`
-- **Senha:** `""` (vazia)
-- **Banco de dados:** `netron_company`
+$conn = new mysqli($sql["host"], $sql["user"], $sql["password"], $sql["database"]);
+$endpoint = $data["endpoint"] ?? '';
 
-## Headers de Requisição
-A API permite requisições de qualquer origem com os seguintes cabeçalhos:
-- `Content-Type: application/json`
-- `Access-Control-Allow-Origin: *`
-- `Access-Control-Allow-Methods: GET, POST, PUT, DELETE`
-- `Access-Control-Allow-Headers: Content-Type, Authorization`
-
-## Endpoints Disponíveis
-### 1. Login do Usuário
-**Endpoint:** `/login`
-
-**Método:** `POST`
-
-**Parâmetros:**
-```json
-{
-  "email": "usuario@example.com",
-  "password": "senha123"
+if (!isset($endpoint) or empty($endpoint)) {
+    echo json_encode(["error" => "No endpoint provided"]);
+    exit();
 }
-```
 
-**Respostas:**
-- `200 OK` - Login bem-sucedido
-- `400 Bad Request` - Email ou senha inválidos
-- `404 Not Found` - Usuário não encontrado
-
----
-### 2. Obter ID do Usuário Logado
-**Endpoint:** `/get_user_id`
-
-**Método:** `GET`
-
-**Respostas:**
-- `200 OK` - Retorna o ID do usuário logado
-- `400 Bad Request` - Usuário não logado
-
----
-### 3. Obter Informações do Usuário Logado
-**Endpoint:** `/get_user_info`
-
-**Método:** `GET`
-
-**Respostas:**
-- `200 OK` - Retorna informações do usuário
-- `400 Bad Request` - Usuário não logado
-- `404 Not Found` - Nenhum usuário encontrado
-
----
-### 4. Verificar Login
-**Endpoint:** `/verify_login`
-
-**Método:** `GET`
-
-**Respostas:**
-- `200 OK` - Usuário está logado
-- `400 Bad Request` - Usuário não está logado
-
----
-### 5. Logout
-**Endpoint:** `/logout`
-
-**Método:** `GET`
-
-**Respostas:**
-- `200 OK` - Logout bem-sucedido
-
----
-### 6. Criar Ticket
-**Endpoint:** `/create_ticket`
-
-**Método:** `POST`
-
-**Parâmetros:**
-```json
-{
-  "title": "Problema com acesso",
-  "description": "Não consigo acessar minha conta"
+if ($endpoint === "login") {
+    $payload = [
+        "email"    => $data["email"]    ?? '',
+        "password" => $data["password"] ?? ''
+    ];
+    if (!isset($payload["email"]) || empty($payload["email"])) {
+        http_response_code(400);
+        echo json_encode(["succes" => false, "message" => "Inválid email"]);
+        exit;
+    }
+    if (!isset($payload["password"]) || empty($payload["password"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Inválid Password"]);
+        exit;
+    }
+    $sql = "SELECT * FROM users WHERE email = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $payload["email"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "User not found"]);
+        exit;
+    }
+    $userR = $result->fetch_assoc();
+    if (!password_verify($payload["password"], $userR["password"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Incorrect Password"]);
+        exit;
+    }
+    $_SESSION["user_id"] = $userR["id"];
+    $_SESSION["loged"] = true;
+    http_response_code(200);
+    echo json_encode(["success" => true, "message" => "Sucefull login"]);
+    exit;
 }
-```
-
-**Respostas:**
-- `200 OK` - Ticket criado com sucesso
-- `400 Bad Request` - Erro ao criar o ticket
-- `403 Forbidden` - Usuário não autorizado
-
----
-### 7. Listar Tickets
-**Endpoint:** `/list_tickets`
-
-**Método:** `GET`
-
-**Respostas:**
-- `200 OK` - Lista de tickets
-- `403 Forbidden` - Usuário não autorizado
-- `404 Not Found` - Nenhum ticket encontrado
-
----
-### 8. Enviar Mensagem
-**Endpoint:** `/send_message`
-
-**Método:** `POST`
-
-**Parâmetros:**
-```json
-{
-  "ticket_id": 1,
-  "message": "Preciso de suporte urgente"
+if ($endpoint === "get_user_id") {
+    if (!isset($_SESSION["user_id"]) || empty($_SESSION["user_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "User not loged"]);
+        exit;
+    }
+    http_response_code(200);
+    echo json_encode(["success" => true, "id" => $_SESSION["user_id"]]);
+    exit;
 }
-```
-
-**Respostas:**
-- `200 OK` - Mensagem enviada com sucesso
-- `400 Bad Request` - Parâmetros inválidos
-- `403 Forbidden` - Usuário não autorizado
-- `404 Not Found` - Ticket ou usuário não encontrado
-
----
-### 9. Listar Mensagens de um Ticket
-**Endpoint:** `/messages`
-
-**Método:** `GET`
-
-**Parâmetros:**
-```json
-{
-  "ticket_id": 1
+if ($endpoint === "get_user_info") {
+    if (!isset($_SESSION["user_id"]) || empty($_SESSION["user_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "User not loged"]);
+        exit;
+    }
+    $sql = "SELECT * FROM users WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $_SESSION["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => true, "message" => "None user fount"]);
+        exit;
+    }
+    $userInfo = $result->fetch_assoc();
+    $user = [
+        "id"    =>  $userInfo["id"],
+        "name"  => $userInfo["name"]
+    ];
+    http_response_code(200);
+    echo json_encode(["success" => true, "user" => $user]);
+    exit;
 }
-```
-
-**Respostas:**
-- `200 OK` - Lista de mensagens do ticket
-- `400 Bad Request` - Ticket ID inválido
-- `403 Forbidden` - Usuário não autorizado
-- `404 Not Found` - Nenhuma mensagem encontrada
-
----
-### 10. Obter Nome do Usuário pelo ID
-**Endpoint:** `/get_id_info`
-
-**Método:** `POST`
-
-**Parâmetros:**
-```json
-{
-  "user_id": 1
+if ($endpoint === "verify_login") {
+    if (!isset($_SESSION["user_id"]) || empty($_SESSION["user_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "User not loged"]);
+        exit;
+    }
+    http_response_code(200);
+    echo json_encode(["success" => true, "message" => "User loged"]);
+    exit;
 }
-```
+if ($endpoint === "logout") {
+    echo json_encode(["success" => true]);
 
-**Respostas:**
-- `200 OK` - Retorna o nome do usuário
-- `404 Not Found` - Usuário não encontrado
-
-## Considerações Finais
-- As sessões são utilizadas para autenticação do usuário.
-- O acesso é permitido apenas para usuários autenticados.
-- Administradores têm permissão para visualizar todos os tickets.
-- Recomenda-se a utilização de HTTPS para segurança.
-
-Esta documentação cobre os principais endpoints da API e suas respectivas respostas.
-
+    session_unset();
+    session_destroy();
+    if (session_status() === PHP_SESSION_NONE) {
+        error_log('Session successfully destroyed');
+    }
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("Expires: Sat, 26 Jul 1997 05:00:00 GMT");
+    exit;
+}
+if ($endpoint === "create_ticket") {
+    $payload = [
+        "user_id"     => $_SESSION["user_id"] ?? 0,
+        "title"       => $data["title"]       ?? '',
+        "description" => $data["description"] ?? '',
+        "status"      => "Open"
+    ];
+    if (!isset($payload["user_id"]) || empty($payload["user_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Inválid user_id"]);
+        exit;
+    }
+    if (!isset($payload["title"]) || empty($payload["title"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Empty title"]);
+        exit;
+    }
+    $sql = "SELECT * FROM tickets WHERE user_id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows > 0) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Ticket aleard created"]);
+        exit;
+    }
+    $sql = "INSERT INTO tickets (status, user_id, title, description) VALUES (?, ?, ?, ?)";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("si",  $payload["status"], $payload["user_id"], $payload["title"], $payload["description"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($stmt->affected_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "Nenhum registro foi modificado"]);
+        exit;
+    }
+    http_response_code(200);
+    echo json_encode(["success" => true, "message" => "Ticket sucefull created"]);
+    exit;
+}
+if ($endpoint === "list_tickets") {
+    $payload = [
+        "user_id" => $_SESSION["user_id"] ?? 0,
+        "filter"  => $data["filter"]      ?? ''
+    ];
+    if (!isset($payload["user_id"]) ||  empty($payload["user_id"])) {
+        http_response_code(403);
+        echo json_encode(["success" => false, "message" => "Uset not loged"]);
+        exit;
+    }
+    $sql = "SELECT * FROM users WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result ->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "Uset not loged"]);
+        exit;
+    }
+    $user = $result->fetch_assoc();
+    if ($user["admin"] == 1) {
+        if (!isset($payload["filter"]) || empty($payload["filter"])) {
+            $sql = "SELECT * FROM tickets";
+            $stmt = $conn->prepare($sql);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($result->num_rows == 0) {
+                echo json_encode(["success" =>  false, "message" => "None ticket found"]);
+                exit;
+            }
+            $tickets = [];
+            while ($row = $result->fetch_assoc()) {
+                $tickets[] = $row;
+            }
+            echo json_encode(["success" => true, "tickets" => $tickets]);
+            exit;
+        }
+        $sql = "SELECT * FROM tickets WHERE user_id = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $payload["filter"]);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows == 0) {
+            http_response_code(404);
+            echo json_encode(["success" => false, "message" => "None ticket found"]);
+            exit;
+        }
+        $tickets = [];
+        while (($row = $result->fetch_assoc())) {
+            $tickets[] = $row;
+        }
+        echo json_encode(["success" => true, "tickets" => $tickets]);
+        exit;
+    }
+    $sql = "SELECT * FROM tickets WHERE user_id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "None ticket found"]);
+        exit;
+    }
+    $tickets = [];
+    while ($row = $result->fetch_assoc()) {
+        $tickets[] = $row;
+    }
+    echo json_encode(["success" => true, "tickets" => $tickets]);
+    exit;
+}
+if ($endpoint === "send_message") {
+    $payload = [
+        "ticket_id" => $data["ticket_id"] ?? 0,
+        "message"   => $data["message"]   ?? '',
+        "user_id"   => $_SESSION["user_id"]
+    ];
+    if (!isset($payload["user_id"]) || empty($payload["user_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "User not logeg"]);
+        exit;
+    }
+    if (!isset($payload["ticket_id"]) || empty($payload["ticket_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Empty ticket_id"]);
+        exit;
+    }
+    if (!isset(($payload["message"])) || empty($payload["message"])) {
+        http_response_code(403);
+        echo json_encode(["success" => false, "message" => "Message cannot be null"]);
+        exit;
+    }
+    $sql = "SELECT * FROM users WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $message_content = [
+        "message"      => $payload["message"] ?? '',
+        "ticket_id"    => $payload["ticket_id"] ?? 0,
+        "user_id"      => $payload["user_id"] ?? 0,
+        "shiping_date" => date("Y-m-d H:i:s")
+    ];
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "User not found"]);
+        exit;
+    }
+    $user = $result->fetch_assoc();
+    if ($user["admin"] == 1) {
+        $sql = "INSERT INTO messages (message, ticket_id, user_id, shipping_date)
+        VALUES (?, ?, ?, ?)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("siis", $message_content["message"], $message_content["ticket_id"], $message_content["user_id"], $message_content["shiping_date"]);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($stmt->affected_rows == 0) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "message" => "Error to send message"]);
+            exit;
+        }
+        echo json_encode(["success" => true, "message" => "Mensage sendesd"]);
+        exit;
+    }
+    $sql = "SELECT * FROM tickets WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $message_content["ticket_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "Ticket not found"]);
+        exit;
+    }
+    $ticket = $result->fetch_assoc();
+    if ($ticket["user_id"] != $payload["user_id"]) {
+        http_response_code(403);
+        echo json_encode(["success" => false, "message" => "Incorrect user_id"]);
+        exit;
+    }
+    $sql = "INSERT INTO messages (message, ticket_id, user_id, shipping_date)
+    VALUES (?, ?, ?, ?)";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("siis", $message_content["message"], $message_content["ticket_id"], $message_content["user_id"], $message_content["shiping_date"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($stmt->affected_rows == 0) {
+        http_response_code(403);
+        echo json_encode(["success" => false, "message" => "Error to send message"]);
+        exit;
+    }
+    echo json_encode(["success" => true, "message" => "Mensage sended"]);
+    exit;
+}
+if ($endpoint === "messages") {
+    $payload = [
+        "user_id"   => $_SESSION["user_id"] ?? 0,
+        "ticket_id" => $data["ticket_id"]   ?? 0
+    ];
+    if (!isset($payload["user_id"]) || empty($payload["user_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "User not logged"]);
+        exit;
+    }
+    if (!isset($payload["ticket_id"]) || empty($payload["ticket_id"])) {
+        http_response_code(400);
+        echo json_encode(["success" => false, "message" => "Empty ticket_id"]);
+        exit;
+    }
+    $sql = "SELECT * FROM users WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "User not found"]);
+        exit;
+    }
+    $user = $result->fetch_assoc();
+    $messages = [];
+    if ($user["admin"] == 1) {
+        $sql = "SELECT * FROM messages WHERE ticket_id = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $payload["ticket_id"]);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result->num_rows == 0) {
+            http_response_code(404);
+            echo json_encode(["success" => false, "message" => "None message found"]);
+            exit;
+        }
+        while ($row = $result->fetch_assoc()) {
+            $messages[] = $row;
+        }
+        echo json_encode(["success" => true, "messages" => $messages]);
+        exit;
+    }
+    $sql = "SELECT * FROM tickets WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["ticket_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "Ticket not found"]);
+        exit;
+    }
+    $ticket = $result->fetch_assoc();
+    if ($user["id"] != $ticket["user_id"]) {
+        http_response_code(403);
+        echo json_encode(["success" => false, "message" => "Unauthorized Access"]); // Correção: "Unauthorized"
+        exit;
+    }
+    $sql = "SELECT * FROM messages WHERE ticket_id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["ticket_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "None message found"]);
+        exit;
+    }
+    while ($row = $result->fetch_assoc()) {
+        $messages[] = $row;
+    }
+    echo json_encode(["success" => true, "messages" => $messages]);
+    exit;
+}
+if ($endpoint === "get_id_info") {
+    $payload = [
+        "user_id" => $data["user_id"]
+    ];
+    $sql = "SELECT * FROM users WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $payload["user_id"]);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        http_response_code(404);
+        echo json_encode(["success" => false, "message" => "User not found"]);
+        exit;
+    }
+    $user_info = $result->fetch_assoc();
+    echo json_encode(["success" => true, "username" => $user_info["name"]]);
+    exit;
+}
+echo json_encode(["success" => false, "message" => "Inválid endpoint"]);
+$conn->close();
+?>
